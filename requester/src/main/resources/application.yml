@@ -1,0 +1,4 @@
+rsocket:
+  port: 8181
+server:
+  port: 8082

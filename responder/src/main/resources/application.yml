@@ -1,0 +1,8 @@
+rsocket:
+  port: 8181
+spring:
+  rsocket:
+    server:
+      port: ${rsocket.port}
+server:
+  port: 8081
