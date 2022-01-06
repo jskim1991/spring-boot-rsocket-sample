@@ -39,7 +39,6 @@ public class ResponderApplication {
 
     @SneakyThrows
     public static void main(String[] args) {
-        System.setProperty("spring.profiles.active", "service");
         SpringApplication.run(ResponderApplication.class, args);
     }
 }
@@ -66,7 +65,7 @@ class ResponderConfiguration {
 class ResponderController {
 
     @MessageMapping("responder-request-response.{id}")
-    Mono<String> handleRequestResponse(@DestinationVariable Integer id,
+    public Mono<String> handleRequestResponse(@DestinationVariable Integer id,
                                        @Header(Constants.CUSTOM_HEADER) String customHeader,
                                        @Headers Map<String, Object> metadata,
                                        @Payload String payload) {
@@ -77,25 +76,25 @@ class ResponderController {
     }
 
     @MessageMapping("responder-channel-stream")
-    Flux<String> handleStream(@Payload Flux<String> payloads) {
+    public Flux<String> handleStream(@Payload Flux<String> payloads) {
         log.info("Channel Stream");
         return payloads.map(request -> request.toUpperCase(Locale.ROOT))
                 .doOnNext(log::info);
     }
 
     @MessageMapping("responder-fire-forget")
-    void handleFireAndForget(String payload) {
+    public void handleFireAndForget(String payload) {
         log.info("Fire and Forget");
         log.info(payload);
     }
 
     @MessageMapping("responder-channel-bidirectional")
-    Flux<String> handleBidirectional(RSocketRequester client, @Payload String request) {
-        log.info("Bi-directional");
-        Flux<RequesterHealthState> healthFlux = client.route("health")
-                .data(Mono.empty())
-                .retrieveFlux(RequesterHealthState.class)
-                .filter(chs -> chs.getState().equalsIgnoreCase(RequesterHealthState.STOPPED))
+    public Flux<String> handleBidirectional(RSocketRequester client, @Payload String request) {
+        log.info("Bi-directional " + request);
+        Flux<ConditionFlag> healthFlux = client.route("health")
+                .data(Mono.just("STARTED?"))
+                .retrieveFlux(ConditionFlag.class)
+                .filter(chs -> chs.getState().equalsIgnoreCase(ConditionFlag.STOPPED))
                 .doOnNext(chs -> log.info(chs.toString()));
 
         Flux<String> replyPayload = Flux.fromStream(Stream.generate(() -> ("Hello " + request + " @ " + Instant.now())))
@@ -105,12 +104,12 @@ class ResponderController {
     }
 
     @MessageMapping("error")
-    Mono<String> error() {
+    public Mono<String> error() {
         return Mono.error(new RuntimeException("Something bad happened"));
     }
 
     @MessageExceptionHandler(RuntimeException.class)
-    Mono<RuntimeException> exceptionHandler(RuntimeException runtimeException) {
+    public Mono<RuntimeException> exceptionHandler(RuntimeException runtimeException) {
         log.error(runtimeException.getMessage());
         return Mono.error(runtimeException);
     }
@@ -120,6 +119,7 @@ class ResponderController {
 @EnableRSocketSecurity
 @EnableReactiveMethodSecurity
 class SecurityConfiguration {
+
     @Bean
     MapReactiveUserDetailsService authentication() {
         return new MapReactiveUserDetailsService(
@@ -131,10 +131,10 @@ class SecurityConfiguration {
     }
 
     @Bean
-    PayloadSocketAcceptorInterceptor payloadSocketAcceptorInterceptor(RSocketSecurity security) {
+    PayloadSocketAcceptorInterceptor authorization(RSocketSecurity security) {
         return security
                 .authorizePayload(authorize ->
-                        authorize.route("hello").authenticated()
+                        authorize.route("auth").authenticated()
                                 .anyRequest().permitAll()
                                 .anyExchange().permitAll()
                 )
@@ -157,13 +157,13 @@ class SecurityConfiguration {
 class RestrictedController {
 
     @ConnectMapping("connect")
-    void connect(@AuthenticationPrincipal Mono<UserDetails> user) {
+    public void connect(@AuthenticationPrincipal Mono<UserDetails> user) {
         user.map(UserDetails::getUsername)
                 .subscribe(name -> log.info("Connection established for " + name));
     }
 
     @MessageMapping("auth")
-    Mono<String> authenticate(@AuthenticationPrincipal Mono<UserDetails> user) {
+    public Mono<String> authenticate(@AuthenticationPrincipal Mono<UserDetails> user) {
         return user.map(u -> "Hi there " + u.getUsername());
     }
 }

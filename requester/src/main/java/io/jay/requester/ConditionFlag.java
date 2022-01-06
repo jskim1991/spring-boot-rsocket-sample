@@ -1,19 +1,18 @@
-package io.jay.responder;
+package io.jay.requester;
 
 import lombok.Data;
 
 @Data
-public
-class RequesterHealthState {
+public class ConditionFlag {
     public static final String STARTED = "started";
     public static final String STOPPED = "stopped";
     private final String state;
 
-    public RequesterHealthState() {
+    public ConditionFlag() {
         this.state = STARTED;
     }
 
-    public RequesterHealthState(String s) {
+    public ConditionFlag(String s) {
         this.state = s;
     }
 }

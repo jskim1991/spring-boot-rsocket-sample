@@ -11,10 +11,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
 import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.rsocket.RSocketRequester;
 import org.springframework.messaging.rsocket.annotation.support.RSocketMessageHandler;
-import org.springframework.security.config.annotation.rsocket.RSocketSecurity;
-import org.springframework.security.rsocket.core.PayloadSocketAcceptorInterceptor;
 import org.springframework.security.rsocket.metadata.SimpleAuthenticationEncoder;
 import org.springframework.security.rsocket.metadata.UsernamePasswordMetadata;
 import org.springframework.stereotype.Controller;
@@ -38,17 +37,6 @@ public class RequesterApplication {
     @SneakyThrows
     public static void main(String[] args) {
         SpringApplication.run(RequesterApplication.class, args);
-    }
-}
-
-@Configuration
-class SecurityConfiguration {
-    @Bean
-    PayloadSocketAcceptorInterceptor payloadSocketAcceptorInterceptor(RSocketSecurity security) {
-        return security.authorizePayload(authorize ->
-                        authorize.anyRequest().permitAll())
-                .build();
-
     }
 }
 
@@ -84,14 +72,15 @@ class RequesterController {
         log.info("Sending request / response");
         return rSocketRequester.route("responder-request-response.{id}", 123)
                 .metadata("some-custom-header-value", MimeType.valueOf("messaging/custom-header"))
-                .data("Reactive Spring")
+                .data("data to send")
                 .retrieveMono(String.class);
     }
 
     @GetMapping("/auth")
     public Mono<String> sendSimpleAuthentication() {
         return rSocketRequester.route("auth")
-                .metadata(new UsernamePasswordMetadata("jay", "pw"), MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString()))
+                .metadata(new UsernamePasswordMetadata("jay", "pw"),
+                        MimeTypeUtils.parseMimeType(WellKnownMimeType.MESSAGE_RSOCKET_AUTHENTICATION.getString()))
                 .data(Mono.empty())
                 .retrieveMono(String.class);
     }
@@ -127,7 +116,7 @@ class RequesterController {
         Flux.fromStream(IntStream.range(0, max).boxed())
                 .delayElements(Duration.ofSeconds(1))
                 .map(id -> new Requester(rSocketRequester, id.toString()))
-                .flatMap(Requester::getGreetings)
+                .flatMap(Requester::request)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(log::info);
     }
@@ -147,13 +136,14 @@ class RequesterController {
 class RequesterMessageController {
 
     @MessageMapping("health")
-    Flux<RequesterHealthState> health() {
+    public Flux<ConditionFlag> health(@Payload String payload) {
+        log.info(payload);
         var start = new Date().getTime();
         var delay = Duration.ofSeconds(3).toMillis();
         return Flux.fromStream(Stream.generate(() -> {
                     var now = new Date().getTime();
                     var stop = (start + delay) < now;
-                    return new RequesterHealthState(stop ? RequesterHealthState.STOPPED : RequesterHealthState.STARTED);
+                    return new ConditionFlag(stop ? ConditionFlag.STOPPED : ConditionFlag.STARTED);
                 }))
                 .delayElements(Duration.ofSeconds(1))
                 .doOnNext(chs -> log.info("Sending status " + chs.getState()));
@@ -166,7 +156,7 @@ class Requester {
     private final RSocketRequester rSocketRequester;
     private final String id;
 
-    Flux<String> getGreetings() {
+    public Flux<String> request() {
         return rSocketRequester.route("responder-channel-bidirectional")
                 .data("Client #" + id)
                 .retrieveFlux(String.class);
